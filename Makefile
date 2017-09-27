@@ -30,7 +30,7 @@ slock: ${OBJ}
 
 clean:
 	@echo cleaning
-	@rm -f slock ${OBJ} slock-${VERSION}.tar.gz
+	rm -f slock ${OBJ} config.h slock-${VERSION}.tar.gz
 
 dist: clean
 	@echo creating dist tarball
