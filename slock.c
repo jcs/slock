@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/extensions/dpms.h>
 #include <X11/keysym.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -134,11 +135,26 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 	unsigned int len, color;
 	KeySym ksym;
 	XEvent ev;
+	CARD16 dstandby, dsuspend, doff;
 
 	len = 0;
 	running = 1;
 	failure = 0;
 	oldc = INIT;
+
+	/*
+	 * if dpms is available, store the current values, set a low timeout,
+	 * and then force the screen off.  when the user starts typing, dpms
+	 * will force the screen on and then after a few seconds of no typing,
+	 * the low timeout will force the screen off again.  we'll restore the
+	 * user's previous timeouts at the end of the loop.
+	 */
+
+	if (DPMSCapable(dpy) && DPMSEnable(dpy)) {
+		DPMSGetTimeouts(dpy, &dstandby, &dsuspend, &doff);
+		DPMSSetTimeouts(dpy, 0, 0, dpmstimeout);
+		DPMSForceLevel(dpy, DPMSModeOff);
+	}
 
 	while (running && !XNextEvent(dpy, &ev)) {
 		if (ev.type == KeyPress) {
@@ -216,6 +232,11 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 			for (screen = 0; screen < nscreens; screen++)
 				XRaiseWindow(dpy, locks[screen]->win);
 		}
+	}
+
+	if (DPMSCapable(dpy) && DPMSEnable(dpy)) {
+		DPMSSetTimeouts(dpy, dstandby, dsuspend, doff);
+		XFlush(dpy);
 	}
 }
 

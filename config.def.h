@@ -10,3 +10,6 @@ static const char *colorname[NUMCOLS] = {
 
 /* treat a cleared input like a wrong password (color) */
 static const int failonclear = 1;
+
+/* how many seconds to wait before turning screen off again */
+static const int dpmstimeout = 5;
