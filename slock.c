@@ -151,6 +151,9 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 	 */
 
 	if (DPMSCapable(dpy) && DPMSEnable(dpy)) {
+		/* allow the initial window paint to actually happen */
+		usleep(100000);
+
 		DPMSGetTimeouts(dpy, &dstandby, &dsuspend, &doff);
 		DPMSSetTimeouts(dpy, 0, 0, dpmstimeout);
 		DPMSForceLevel(dpy, DPMSModeOff);
