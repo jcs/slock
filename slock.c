@@ -20,6 +20,15 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
+#if HAVE_BSD_AUTH
+#include <login_cap.h>
+#include <bsd_auth.h>
+#include <sys/stat.h>
+
+/* OpenBSD: set[ug]id binary MUST say so in this var */
+mode_t _permit_setugid = S_ISGID;
+#endif
+
 #include "arg.h"
 #include "util.h"
 
@@ -84,6 +93,7 @@ dontkillme(void)
 }
 #endif
 
+#ifndef HAVE_BSD_AUTH
 static const char *
 gethash(void)
 {
@@ -124,13 +134,21 @@ gethash(void)
 
 	return hash;
 }
+#endif /* HAVE_BSD_AUTH */
 
 static void
+#ifdef HAVE_BSD_AUTH
+readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens)
+#else
 readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
        const char *hash)
+#endif
 {
 	XRRScreenChangeNotifyEvent *rre;
-	char buf[32], passwd[256], *inputhash;
+	char buf[32], passwd[256];
+#ifndef HAVE_BSD_AUTH
+	char *inputhash;
+#endif
 	int num, screen, running, failure, oldc;
 	unsigned int len, color;
 	KeySym ksym;
@@ -179,10 +197,14 @@ readpw(Display *dpy, struct xrandr *rr, struct lock **locks, int nscreens,
 			case XK_Return:
 				passwd[len] = '\0';
 				errno = 0;
+#ifdef HAVE_BSD_AUTH
+				running = !auth_userokay(getlogin(), NULL, "auth-slock", passwd);
+#else
 				if (!(inputhash = crypt(passwd, hash)))
 					fprintf(stderr, "slock: crypt: %s\n", strerror(errno));
 				else
 					running = !!strcmp(inputhash, hash);
+#endif
 				if (running) {
 					XBell(dpy, 100);
 					failure = 1;
@@ -333,9 +355,11 @@ main(int argc, char **argv) {
 	struct lock **locks;
 	struct passwd *pwd;
 	struct group *grp;
+#ifndef HAVE_BSD_AUTH
 	uid_t duid;
 	gid_t dgid;
 	const char *hash;
+#endif
 	Display *dpy;
 	int s, nlocks, nscreens;
 
@@ -352,25 +376,38 @@ main(int argc, char **argv) {
 	if (!(pwd = getpwnam(user)))
 		die("slock: getpwnam %s: %s\n", user,
 		    errno ? strerror(errno) : "user entry not found");
+#ifndef HAVE_BSD_AUTH
 	duid = pwd->pw_uid;
+#endif
 	errno = 0;
 	if (!(grp = getgrnam(group)))
 		die("slock: getgrnam %s: %s\n", group,
 		    errno ? strerror(errno) : "group entry not found");
+#ifndef HAVE_BSD_AUTH
 	dgid = grp->gr_gid;
+#endif
 
 #ifdef __linux__
 	dontkillme();
 #endif
 
+#ifndef HAVE_BSD_AUTH
 	hash = gethash();
 	errno = 0;
 	if (!crypt("", hash))
 		die("slock: crypt: %s\n", strerror(errno));
+#endif
 
 	if (!(dpy = XOpenDisplay(NULL)))
 		die("slock: cannot open display\n");
 
+/*
+ * don't drop groups for bsd-auth, slock runs as the user's normal
+ * uid, and requires gid auth from the setgid bit. (without bsd-auth
+ * slock needs to start with uid root or gid _shadow to read spwd.db,
+ * and is unable to use non-password methods)
+ */
+#ifndef HAVE_BSD_AUTH
 	/* drop privileges */
 	if (setgroups(0, NULL) < 0)
 		die("slock: setgroups: %s\n", strerror(errno));
@@ -378,6 +415,7 @@ main(int argc, char **argv) {
 		die("slock: setgid: %s\n", strerror(errno));
 	if (setuid(duid) < 0)
 		die("slock: setuid: %s\n", strerror(errno));
+#endif
 
 	/* check for Xrandr support */
 	rr.active = XRRQueryExtension(dpy, &rr.evbase, &rr.errbase);
@@ -413,7 +451,11 @@ main(int argc, char **argv) {
 	}
 
 	/* everything is now blank. Wait for the correct password */
+#ifdef HAVE_BSD_AUTH
+	readpw(dpy, &rr, locks, nscreens);
+#else
 	readpw(dpy, &rr, locks, nscreens, hash);
+#endif
 
 	return 0;
 }
